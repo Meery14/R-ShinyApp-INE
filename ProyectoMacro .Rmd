@@ -1,0 +1,341 @@
+---
+title: "Proyecto de Economía Mundial, Española y Regional"
+author: "Maria Gutierrez Martin"
+runtime: shiny
+output: html_document
+---
+<!-- Protocolo: Obtención de los datos y explicación del tratamiento de los mismos.  -->
+
+<!-- En primer lugar, instalamos y cargamos los paquetes que nos vayan a ser necesarios en la obtención de datos y en la Aplicación Shiny, si los mismos no están previamente cargados en nuestro entorno de trabajo de RStudio.  -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+if (!require("readr")) {
+  install.packages("readr")
+  library("readr")
+}
+if (!require("shiny")) {
+  install.packages("shiny")
+  library("shiny")
+}
+
+if (!require("ggplot2")) {
+  install.packages("ggplot2")
+  library("ggplot2")
+}
+if (!require("plotly")) {
+  install.packages("plotly")
+  library("plotly")
+}
+
+if (!require("pxR")) {
+  install.packages("pxR")
+  library("pxR")
+}
+```
+
+<!-- Una vez cargados los paquetes, procedemos a la importación de los datos.  -->
+
+<!-- En primer lugar, mencionar que utilizaremos la extensión de PC-Axis de las variables obtenidas en el INE. Para ello, hacemos uso de la librería "pxR". Directamente, con el comando %>% as.data.frame, convertimos los datos en Data, para poder manejarlos en R.  -->
+<!-- A continuación, con la función names(dataframe)[columna(numero)] <- c("nuevo nombre"), renombramos las cabeceras de las columnas de la tabla a nuestro gusto, para poder trabajar con ella con una mayor facilidad y, a la hora de verlas en Shiny, sean legibles y no presenten caracteres extraños.  -->
+
+<!-- En este caso, para facilitar el filtrado de datos en Shiny, se ha decidido renombrar en toda la variable2, en la columna de Sexo, el dato "Varones" por "Hombres".  -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Importacion de datos 
+
+variable1 <- read.px("http://www.ine.es/jaxiT3/files/t/es/px/4725.px?nocab=1") %>% as.data.frame()
+names(variable1)[c(2)]<-c("Tipo de dato")  
+names(variable1)[c(5)]<-c("Valor")  
+save(variable1,file = "variable1.RData")
+
+variable2 <- read.px("http://www.ine.es/jaxi/files/_px/es/px/t22/p212/2016-2029/l0/02001.px?nocab=1") %>% as.data.frame()
+names(variable2)[c(2)]<-c("Periodo")  
+names(variable2)[c(3)]<-c("Comunidades y ciudades autonomas")  
+names(variable2)[c(4)]<-c("Valor")  
+
+variable2$Sexo <- gsub("Varones", "Hombres", variable2$Sexo)
+save(variable2,file = "variable2.RData")
+
+
+```
+
+<!-- A continuación tenemos el código de la aplicación Shiny. Iremos detallando cada una de las funciones y consideraciones a tener en cuenta en comentarios en el código.  -->
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(shiny)
+library(dplyr)
+library(plotly)
+
+
+ui <- fluidPage(
+  
+  #Titulo con el logo de la Universidad Politécnica de Madrid 
+  tags$h1(tags$img(src = "http://www.upm.es/sfs/Rectorado/Gabinete%20del%20Rector/Logos/UPM/Logotipo%20con%20Leyenda/LOGOTIPO%20leyenda%20color%20PNG.png", width = 150), tags$b("Macroeconomía Avanzada y Aplicada")),
+  
+  
+  # Creamos la página 
+  sidebarLayout(
+    
+    # Creamos el panel donde van a estar las opcioines a elegir 
+    sidebarPanel(
+      
+      # Input: Escoger la base de datos a escoger
+      selectInput("dataset", "Escoja la variable sobre la que desea obtener información:",
+                  choices = c("Población por sexo y grupo de edad: valores absolutos y porcentajes" = 1, 
+                              "Proyecciones de tasas de actividad por comunidades autónomas"= 2)),
+      
+      # Linea horizontal ----
+      tags$hr(),
+      
+      # Panel condicional 1: Panel al seleccionar la variable 1 
+      conditionalPanel(
+        condition = "input.dataset == 1",
+        selectInput("dataset0", "Escoja la forma de representar el valor:",
+                    choices = c("Porcentaje" ="Porcentaje", 
+                                "Valor absoluto" ="Valor absoluto"),
+                    selected = "Valor absoluto"),
+        
+        # Input: Escojo el rango de edad
+        selectInput("dataset1", "Escoja un rango de edad:",
+                    choices = c("Total", "De 0 a 4 años", "De 5 a 9 años","De 10 a 15 años", "De 16 a 19 años","De 20 a 24 años",
+                                "De 25 a 29 años", "De 30 a 34 años", "De 35 a 39 años", "De 40 a 44 años", "De 45 a 49 años",
+                                "De 50 a 54 años", "De 55 a 59 años", "De 60 a 64 años", "De 65 a 69 años", "70 y más años"),
+                    selected = "Total"),
+        
+        # Input: Seleccionar el filtrado de datos 
+        #Puedes seleccionar varias opciones para poder comparar resultados en la gráfica, para lo cual activamos el MULTIPLE
+        selectInput ("all", "Seleccione el filtrado de datos deseado",
+                     choices = c("Ambos sexos",
+                                 "Mujeres",
+                                 "Hombres"),
+                     selected = "Ambos sexos",
+                     multiple = TRUE)
+      ),
+      
+      # Panel condicional 2: Panel al seleccionar la variable 2
+      conditionalPanel(
+        condition = "input.dataset == 2",
+        selectInput ("all", "Seleccione el filtrado de datos deseado",
+                     choices = c("Ambos sexos",
+                                 "Mujeres",
+                                 "Hombres"),
+                     selected = "Ambos sexos",
+                     multiple = FALSE),
+        #Puedes seleccionar varias comunidades autónomas para poder comparar resultados en la gráfica, para lo cual activamos el MULTIPLE
+        selectInput("dataset2","Comunidades Autónomas:",choices = c("Total Nacional"= "Total nacional",
+                                                                    "Andalucía"="Andalucía",
+                                                                    "Aragón"= "Aragón",
+                                                                    "Principado de Asturias"= "Asturias (Principado de)", 
+                                                                    "Islas Baleares"="Balears (Illes)",
+                                                                    "Canarias"= "Canarias",
+                                                                    "Cantabria"= "Cantabria",
+                                                                    "Castilla y León"= "Castilla y León", 
+                                                                    "Castilla-La Mancha"= "Castilla - La Mancha", 
+                                                                    "Cataluña"= "Cataluña",
+                                                                    "Comunidad Valenciana"= "Comunitat Valenciana",
+                                                                    "Extremadura"= "Extremadura", 
+                                                                    "Galicia"= "Galicia", 
+                                                                    "Comunidad de Madrid"= "Madrid (Comunidad de)",
+                                                                    "Región de Murcia"= "Murcia (Región de)", 
+                                                                    "Comunidad Foral de Navarra"= "Navarra (Comunidad Foral de)", 
+                                                                    "Pais Vasco"= "País Vasco" ,
+                                                                    "La Rioja"= "Rioja (La)",
+                                                                    "Ceuta y Melilla"= "Ceuta y Melilla"),
+                    selected = "Total nacional",
+                    multiple = TRUE)
+      )
+    ),
+    
+    
+    # Panel principal de visualizacion ----
+    mainPanel(
+      #Selector de pestañas
+      tabsetPanel(
+        #Pestaña 1 
+        tabPanel("Tabla de datos",
+                 tableOutput("table") 
+        ),
+        #Pestaña 2
+        tabPanel("Gráficas",
+                 plotlyOutput("grafica")
+        ),
+        #Pestaña 3
+        tabPanel("Informe de la variable escogida",
+                 h5(textOutput("texto1")),
+                 plotlyOutput("grafica2"),
+                 htmlOutput("texto2"),
+                 plotlyOutput("grafica3"),
+                 htmlOutput("texto3")),
+        #Pestaña 4
+        tabPanel("Descargas de archivos",
+                 # Boton de descarga
+                 h4(helpText("Importante: La descarga de datos se hará de los datos seleccionados previamente en el panel de la izquierda")),
+                 downloadButton("downloadData", "Descargar en formato .csv"),
+                
+                 # Boton de descarga
+                 downloadButton("downloadData3", "Descargar en formato .RData"))
+      )
+    )
+  )
+)
+
+server <- function(input, output, session) {
+  
+  # Reactivo utilizado para filtrar los dataframes dependiendo de lo que seleccione el usuario  ----
+  #Usamos %in% para los objetos multiple 
+  reactiveDf <- reactive({
+    if (input$dataset == 1){
+      filtrado = filter(variable1, variable1$`Tipo de dato` == input$dataset0 & 
+                          variable1$Sexo %in% input$all &
+                          variable1$Edad == input$dataset1)
+      return(filtrado)
+    }
+    if (input$dataset == 2){
+      filtrado = filter(variable2, variable2$`Comunidades y ciudades autonomas` %in% input$dataset2 & 
+                          variable2$Sexo == input$all)
+      return(filtrado)}
+  })
+  
+  
+  # Se programa la tabla que va a aparecer ----
+  output$table <- renderTable({
+    reactiveDf()
+  })
+  
+  #Usamos el filtrado para las graficas, y ponemos una grafica tipo plot_ly (interactiva)
+  output$grafica <- renderPlotly({
+    if (input$dataset == 1){
+      filtrado <- reactiveDf()
+      graf <- plot_ly (y=filtrado$Valor, x= filtrado$Periodo, value=filtrado$Valor, type = "scatter", mode ="markers+lines",
+                       name = filtrado$Sexo)
+      return(graf)
+    }
+    if (input$dataset == 2){
+      filtrado <- reactiveDf()
+      graf <- plot_ly (y=filtrado$Valor, x= filtrado$Periodo, value=filtrado$Valor, type = "scatter", mode ="markers+lines", name = filtrado$`Comunidades y ciudades autonomas`)
+      return(graf)
+    }
+  })#grafica
+  
+  #Usamos gráficas con datos concretos para hacer el informe 
+  output$grafica2 <- renderPlotly({
+    if (input$dataset == 1){
+      filtrado = filter(variable1, variable1$`Tipo de dato` == "Porcentaje" & variable1$Edad == "De 25 a 29 años")
+      graf <- plot_ly (y=filtrado$Valor, x= filtrado$Periodo, value=filtrado$Valor, type = "scatter", mode ="markers+lines",
+                       name = filtrado$Sexo)
+      return(graf)
+    }
+    if (input$dataset == 2){
+      filtrado = filter(variable2, variable2$Sexo == "Ambos sexos")
+      graf <- plot_ly (y=filtrado$Valor, x= filtrado$Periodo, value=filtrado$Valor, type = "scatter", mode ="markers+lines", name = filtrado$`Comunidades y ciudades autonomas`)
+      return(graf)
+    }
+  }) #grafica2
+  
+  output$texto1 <- renderText({
+    if(input$dataset == 1){
+      texto <- "En este apartado, vamos a realizar un informe en líneas generales de la variable seleccionada: Población por sexo y grupo de edad: valores absolutos y porcentajes"
+      return(texto)}
+    if(input$dataset == 2){
+       texto <- "En este apartado, vamos a realizar un informe en líneas generales de la variable seleccionada: Proyecciones de tasas de actividad por comunidades autónomas"
+       return(texto)}
+  })#introduccion de los textos 
+  
+  output$texto2 <- renderText({
+    if(input$dataset == 1){
+      texto <- "
+ <br/>
+<br/>
+      Como se puede observar en la grafica anterior, vamos a estudiar la población en España entre los 25 y 29 años, ya que es el periodo de años que comprende la edad de entrar a trabajar y cotizar a la Seguridad Social, y, en el gráfico siguiente, vamos a estudiar la pobación de más de 70 años."
+      return(texto)}
+    if(input$dataset == 2){
+     texto <- "
+<br/>
+<br/>
+Los datos de las gráficas que vamos a mostrar se corresponden con las proyecciones que realiza el INE sobre las tasas de actividad de la población. 
+       <br/>
+ <br/>
+      En la gráfica vamos a mostrar la proyeccion de ambos sexos, ya que nos vamos a centrar en un estudio por las diferentes comunidades autónomas y sus perspectivas de actividad. Sobre esa misma gráfica vamos a ir centrándonos en diferentes periodos de tiempo.
+     <br/>
+     <br/>
+     - Empezamos viendo los datos de finales de los años 70 y principios de los 80. En este periodo destacan las comunidades autónomas de Galicia, País Vasco y Cataluña, entre otras, lo cual no es de extrañar ya que eran las comunidades con mayor industrialización de la época, por lo cual requerían de mayor mano de obra.
+<br/>
+<br/>
+     - En los años 90, destaca la caída de actividad en Asturias, una comunidad que décadas anteriores tenía casi un 10% más de actividad, que puede deberse a la caída de la producción y consumo de carbón, sector en el que despuntaba Asturias.
+<br/>
+     Por el contrario, las Islas Baleares y Cataluña no paran de crecer en tasas de actividad, sobre todo por el crecimiento del turismo. 
+<br/>
+<br/>
+     - Con la entrada en el nuevo siglo, vemos como aumenta la actividad en todas las comunidades autónomas, especialmente en la Comunidad de Madrid y las comunidades con turismo de sol y playa, como son los archipiélagos, la Comunidad Valenciana, la Región de Murcia, etc.
+     <br/>
+<br/> 
+     - A partir del 2007 y con la llegada de la crisis internacional, se ve como en todas las comunidades autónomas hay un ligero descenso de la actividad. Pero, como se puede apreciar, se predice que las tasas de actividad van a ir en descenso durante la próxima década, ya sea por la desaparición de puestos de trabajo por las mejoras tecnológicas que requerirán otro tipo de perfil profesional o por la llegada de una nueva crisis económica. "
+     return(texto)}
+  })
+  
+  #Usamos gráficas con datos concretos para hacer el informe 
+  output$grafica3 <- renderPlotly({
+    if (input$dataset == 1){
+      filtrado = filter(variable1, variable1$`Tipo de dato` == "Porcentaje" & variable1$Edad == "70 y más años")
+      graf <- plot_ly (y=filtrado$Valor, x= filtrado$Periodo, value=filtrado$Valor, type = "scatter", mode ="markers+lines",
+                       name = filtrado$Sexo)
+      return(graf)
+    }
+    if (input$dataset == 2){
+      #No hay grafica que mostrar
+    }
+  }) #grafica3
+  output$texto3 <- renderText({
+    if(input$dataset == 1){
+      texto <- "
+    <br/>
+    <br/>
+    <br/>
+    El estudio comparativo lo vamos a realizar en términos de porcentaje. En la primera gráfica, hay que tener en cuenta dos hechos relevantes:
+ <br/>
+ <br/>
+      - Por un lado, es importante destacar el decrecimiento de la población joven, ya que baja casi un 3% desde el año 2008 hasta la actualidad. Dicho decrecimiento refleja la baja natalidad que sufre España desde los años 80.
+ <br/>
+ <br/>
+      - Por otro lado, hay más hombres que mujeres, dato que rescataremos para analizar el segundo gráfico. Así como destacar que la población joven representa un 5% de la población española.
+    <br/>
+    <br/>
+  En el segundo gráfico, al igual que el anterior, es importante destacar que hay casi un 14% de población mayor de 70 años. Si comparamos con el 5% de población joven, podemos deducir fácilmente que si un porcentaje importante de la población joven no cotiza a la Seguridad Social, no se puede sostener el gasto de la población de mayor edad, cuyo porcentaje no deja de aumentar conforme avanzan los años, debido a la gran esperanza de vida que tenemos los españoles.
+       <br/>
+      <br/>
+    Por último, es curioso ver que en la vejez, existe un mayor porcentaje de mujeres que de hombres, casi un 4% mayor."
+      return(texto)}
+    if(input$dataset == 2){
+      #No hay texto
+    }
+  })
+  
+  # La base de datos escogida se va a descargar como .csv ----
+  output$downloadData <- downloadHandler(
+    filename = function() {
+      paste(input$dataset, ".csv", sep = " ")
+    },
+    content = function(file) {
+      write.csv(reactiveDf(), file, row.names = FALSE)
+    }
+  )
+  
+  # La base de datos escogida se va a descargar como .RData -
+  output$downloadData3 <- downloadHandler(
+    filename = function() {
+      "variable.RData"
+    },
+    content = function(file) {
+     if(input$dataset == 1){
+      save(variable1, file = file)}
+      if(input$dataset == 2){
+      save(variable2, file = file)}
+    }
+  )
+}
+# Run the application 
+shinyApp(ui, server)
+
+```
+
+
